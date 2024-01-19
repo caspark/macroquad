@@ -1,7 +1,58 @@
+use std::f32::consts::PI;
+
 use macroquad::{prelude::*, ui::root_ui};
 
 const VIRTUAL_WIDTH: f32 = 1280.0;
 const VIRTUAL_HEIGHT: f32 = 720.0;
+
+const VERTEX_SHADER: &'static str = "#version 100
+precision lowp float;
+
+attribute vec3 position;
+attribute vec2 texcoord;
+
+varying vec2 uv;
+
+uniform mat4 Model;
+uniform mat4 Projection;
+
+uniform vec4 u_textureSizes;
+uniform vec4 u_sampleProperties;
+
+varying vec2 v_texCoords;
+
+void main() {
+    vec2 uvSize = u_textureSizes.xy;
+    float upscale = u_textureSizes.z;
+
+    v_texCoords.x = texcoord.x + (u_sampleProperties.z / upscale) / uvSize.x;
+    v_texCoords.y = (texcoord.y + (u_sampleProperties.w / upscale) / uvSize.y);
+
+    gl_Position = Projection * Model * vec4(position, 1);
+
+    uv = texcoord;
+}
+";
+
+const FRAGMENT_SHADER: &'static str = "#version 100
+precision lowp float;
+
+varying vec2 uv;
+
+uniform sampler2D Texture;
+
+varying vec2 v_texCoords;
+uniform vec4 u_textureSizes;
+uniform vec4 u_sampleProperties;
+
+void main() {
+    vec2 uv = v_texCoords;
+    vec2 uvSize = u_textureSizes.xy;
+    float upscale = u_textureSizes.z;
+
+    gl_FragColor = texture2D(Texture, uv);
+}
+";
 
 #[macroquad::main("Pixel Perfect")]
 async fn main() {
@@ -9,22 +60,51 @@ async fn main() {
     let mut render_targ = render_target(VIRTUAL_WIDTH as u32, VIRTUAL_HEIGHT as u32);
     render_targ.texture.set_filter(FilterMode::Nearest);
 
+    let rustacean_tex = load_texture("examples/rustacean_happy.png").await.unwrap();
+    rustacean_tex.set_filter(FilterMode::Nearest);
+
     // Setup camera for the virtual screen, that will render to 'render_target'
     let mut render_targ_cam =
         Camera2D::from_display_rect(Rect::new(0., 0., VIRTUAL_WIDTH, VIRTUAL_HEIGHT));
     render_targ_cam.render_target = Some(render_targ.clone());
 
-    let mut scale = 2.0;
+    let material = load_material(
+        ShaderSource::Glsl {
+            vertex: VERTEX_SHADER,
+            fragment: FRAGMENT_SHADER,
+        },
+        MaterialParams {
+            uniforms: vec![
+                ("u_textureSizes".to_owned(), UniformType::Float4),
+                ("u_sampleProperties".to_owned(), UniformType::Float4),
+            ],
+            ..Default::default()
+        },
+    )
+    .unwrap();
+
+    let mut scale = 4.0;
 
     // Desired behavior:
     // Given scale factor, the screen width/height will not divide by it evenly always.
     // In that case, we need to find the gap.
 
     let mut last_res_and_scale = (Vec2::ZERO, scale);
-    let mut camera_offset = vec2(0., 0.);
+    let mut camera_offset_ideal = vec2(0., 0.);
     let camera_speed = 0.1;
 
+    let mut freelook = true;
+
+    let dt = 1. / 60.;
+    let mut camera_angle = 0.0;
+
+    let mut use_shader = true;
+
+    let mut timer = 0.;
+
     loop {
+        timer += dt;
+
         if is_key_pressed(KeyCode::Equal) {
             scale *= 2.0;
             println!("Scale up is now: {}", scale)
@@ -37,29 +117,40 @@ async fn main() {
             |key| is_key_pressed(key) || (is_key_down(KeyCode::LeftShift) && is_key_down(key));
 
         if pressing(KeyCode::W) {
-            camera_offset.y -= camera_speed;
+            camera_offset_ideal.y -= camera_speed;
         } else if pressing(KeyCode::S) {
-            camera_offset.y += camera_speed;
+            camera_offset_ideal.y += camera_speed;
         }
         if pressing(KeyCode::A) {
-            camera_offset.x -= camera_speed;
+            camera_offset_ideal.x -= camera_speed;
         } else if pressing(KeyCode::D) {
-            camera_offset.x += camera_speed;
+            camera_offset_ideal.x += camera_speed;
         }
         if is_key_pressed(KeyCode::R) {
-            camera_offset = vec2(0., 0.);
+            camera_offset_ideal = vec2(0., 0.);
+        }
+        if is_key_pressed(KeyCode::F) {
+            freelook = !freelook;
+            println!("Freelook is now: {}", freelook);
+        }
+        if is_key_pressed(KeyCode::P) {
+            use_shader = !use_shader;
+            println!("Use shader is now: {}", use_shader);
+        }
+
+        if !freelook {
+            camera_offset_ideal =
+                vec2(-10.0, -10.) + Vec2::from_angle(camera_angle).rotate(vec2(5., 5.));
+            camera_angle += PI * dt;
         }
 
         let res = vec2(screen_width(), screen_height());
         let res_changed = res != last_res_and_scale.0 || last_res_and_scale.1 != scale;
         let leftover_pixels = vec2(res.x % scale, res.y % scale);
-        let canvas_size = vec2(res.x - leftover_pixels.x, res.y - leftover_pixels.y) / scale;
-
-        let draw_coords = vec2(
-            (screen_width() - (canvas_size.x * scale)) * 0.5,
-            (screen_height() - (canvas_size.y * scale)) * 0.5,
-        )
-        .floor(); // floor to make sure we're perfectly pixel-aligned
+        // note extra pixel in each direction; the extra pixel will get upscaled and partially used
+        // to fill in the "leftover pixels"
+        let canvas_size =
+            vec2(res.x - leftover_pixels.x, res.y - leftover_pixels.y) / scale + Vec2::ONE;
 
         if res_changed {
             render_targ = render_target(canvas_size.x as u32, canvas_size.y as u32);
@@ -70,9 +161,17 @@ async fn main() {
             render_targ_cam.render_target = Some(render_targ.clone());
         }
 
+        let camera_offset_pixel_aligned = camera_offset_ideal.floor();
         render_targ_cam.target = vec2(
-            camera_offset.x + canvas_size.x / 2.,
-            camera_offset.y + canvas_size.y / 2.,
+            camera_offset_pixel_aligned.x + canvas_size.x / 2.,
+            camera_offset_pixel_aligned.y + canvas_size.y / 2.,
+        );
+        root_ui().label(
+            None,
+            &format!(
+                "Shader: {:?}, Camera target: {:?}",
+                use_shader, render_targ_cam.target
+            ),
         );
 
         // Mouse position in the virtual screen
@@ -90,14 +189,8 @@ async fn main() {
         clear_background(LIGHTGRAY);
 
         draw_text("Hello Pixel Perfect", 20.0, 20.0, 16.0, DARKGRAY);
-        draw_circle(canvas_size.x / 2.0 - 65.0, canvas_size.y / 2.0, 35.0, RED);
-        draw_circle(canvas_size.x / 2.0 + 65.0, canvas_size.y / 2.0, 35.0, BLUE);
-        draw_circle(
-            canvas_size.x / 2.0,
-            canvas_size.y / 2.0 - 65.0,
-            35.0,
-            YELLOW,
-        );
+        draw_circle(65.0, 50., 20.0, GREEN);
+        draw_circle(65.0 * 2.0, 65., 35.0, BLUE);
 
         for x in (0..10).step_by(2) {
             for y in (0..10).step_by(2) {
@@ -111,7 +204,11 @@ async fn main() {
             }
         }
 
-        draw_circle(virtual_mouse_pos.x, virtual_mouse_pos.y, 15.0, BLACK);
+        draw_circle(virtual_mouse_pos.x, virtual_mouse_pos.y, 5.0, BLACK);
+
+        draw_circle(15.0 + (10. * timer.cos()).floor(), 30. + 10., 5.0, ORANGE);
+
+        draw_texture(&rustacean_tex, 10.0 + (10. * timer.cos()).floor(), 60., WHITE);
 
         draw_rectangle_lines(
             virtual_mouse_pos.x.floor(),
@@ -139,16 +236,26 @@ async fn main() {
         root_ui().label(
             Some(vec2(0., screen_height() - 16.)),
             &format!(
-                "draw_coords={:?}, camera_offset={:?}",
-                draw_coords, camera_offset
+                "camera_offset_ideal={:?}, camera_offset_pixel_aligned={:?}",
+                camera_offset_ideal, camera_offset_pixel_aligned
             ),
         );
 
-        // Draw 'render_target' to window screen, properly scaled and letterboxed
+        // Draw 'render_target' to window screen, properly scaled
+        if use_shader {
+            let diff = ((camera_offset_ideal - camera_offset_pixel_aligned) * scale)
+                .as_ivec2()
+                .as_vec2();
+
+            println!("diff: {:?}", diff);
+            material.set_uniform("u_textureSizes", [canvas_size.x, canvas_size.y, scale, 0.0]);
+            material.set_uniform("u_sampleProperties", [0.0, 0.0, diff.x, 1.0 - diff.y]); // 1-diff.y because texture gets v-flipped
+            gl_use_material(&material);
+        }
         draw_texture_ex(
             &render_targ.texture,
-            draw_coords.x,
-            draw_coords.y,
+            0.,
+            0.,
             WHITE,
             DrawTextureParams {
                 dest_size: Some(vec2(canvas_size.x * scale, canvas_size.y * scale)),
@@ -156,6 +263,7 @@ async fn main() {
                 ..Default::default()
             },
         );
+        gl_use_default_material();
 
         next_frame().await;
 
