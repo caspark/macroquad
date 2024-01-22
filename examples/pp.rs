@@ -68,8 +68,8 @@ async fn main() {
     let mut render_targ = render_target(VIRTUAL_WIDTH as u32, VIRTUAL_HEIGHT as u32);
     render_targ.texture.set_filter(FilterMode::Nearest);
 
-    let rustacean_tex = load_texture("examples/chicken.png").await.unwrap();
-    rustacean_tex.set_filter(FilterMode::Nearest);
+    let chicken_tex = load_texture("examples/chicken.png").await.unwrap();
+    chicken_tex.set_filter(FilterMode::Nearest);
 
     // Setup camera for the virtual screen, that will render to 'render_target'
     let mut render_targ_cam =
@@ -226,9 +226,10 @@ async fn main() {
         draw_circle(15.0 + (10. * timer.cos()).round(), 40., 5.0, ORANGE);
 
         draw_texture(
-            &rustacean_tex,
-            10.0 + (10. * timer.cos()).round(),
-            60. + (10. * timer.sin()).round(),
+            &chicken_tex,
+            10.0 + (20. * timer.cos()).round(),
+            60.,
+            // 60. + (20. * timer.sin()).round(),
             WHITE,
         );
 
@@ -306,9 +307,9 @@ async fn main() {
             let v = vec2(10.0 + (10. * timer.cos()), 80. + (10. * timer.sin()));
             let v = render_targ_cam.world_to_screen(v);
             println!("v: {:?}", v);
-            let s = rustacean_tex.size() * scale;
+            let s = chicken_tex.size() * scale;
             draw_texture_ex(
-                &rustacean_tex,
+                &chicken_tex,
                 v.x,
                 v.y,
                 RED,
