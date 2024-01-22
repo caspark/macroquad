@@ -123,14 +123,12 @@ async fn main() {
 
     let mut freelook = true;
 
+    let mut timer = 0.;
     let dt = 1. / 60.;
     let mut camera_angle = 0.0;
 
     let mut use_shader = true;
-
-    let mut timer = 0.;
-
-    let mut keep_camera_pixel_aligned = true;
+    let mut keep_camera_pixel_aligned = false;
 
     loop {
         timer += dt;
@@ -182,7 +180,10 @@ async fn main() {
         }
         if is_key_pressed(KeyCode::V) {
             keep_camera_pixel_aligned = !keep_camera_pixel_aligned;
-            println!("keep_camera_pixel_aligned is now: {}", keep_camera_pixel_aligned);
+            println!(
+                "keep_camera_pixel_aligned is now: {}",
+                keep_camera_pixel_aligned
+            );
         }
 
         if !freelook {
@@ -222,13 +223,6 @@ async fn main() {
             ),
         );
 
-        // Mouse position in the virtual screen
-        let virtual_mouse_pos_exact = Vec2 {
-            x: (mouse_position().0 - (screen_width() - (canvas_size.x * scale)) * 0.5) / scale,
-            y: (mouse_position().1 - (screen_height() - (canvas_size.y * scale)) * 0.5) / scale,
-        };
-        let virtual_mouse_pos = virtual_mouse_pos_exact.floor();
-
         // ------------------------------------------------------------------------
         // Begin drawing the virtual screen to 'render_target'
         // ------------------------------------------------------------------------
@@ -245,23 +239,23 @@ async fn main() {
             } else {
                 camera_offset_ideal
             };
+
             let rect = Rect::new(p.x, p.y, canvas_size.x, canvas_size.y);
             Camera2D {
                 target: vec2(rect.x + rect.w / 2., rect.y + rect.h / 2.),
-                zoom: vec2(1. / rect.w * 2., -1. / rect.h * 2.),
+                zoom: vec2(1. / rect.w * 2., 1. / rect.h * 2.),
                 offset: vec2(0., 0.),
-                rotation: 0.,
-
-                render_target: None,
-                viewport: None,
+                ..Default::default()
             }
         };
         set_camera(&camera);
 
+        let mouse = camera.screen_to_world(vec2(mouse_position().0, mouse_position().1));
+
         clear_background(Color::new(0.0, 0.0, 50.0, 0.0));
 
-        draw_circle(65.0, 50., 20.0, WHITE);
-        draw_circle(130.0, 65., 35.0, BLUE);
+        draw_circle(65.0 * scale, 50. * scale, 20.0 * scale, GREEN);
+        draw_circle(130.0 * scale, 65. * scale, 35.0 * scale, BLUE);
 
         // draw a rectangle grid
         let loop_max = 10 * scale as usize;
@@ -282,30 +276,14 @@ async fn main() {
             }
         }
 
-        draw_circle(virtual_mouse_pos.x, virtual_mouse_pos.y, 5.0, BLACK);
-
-        draw_circle(15.0 + (10. * timer.cos()), 40., 5.0, ORANGE);
+        draw_circle(15.0 + (10. * timer.cos()), 40., 5.0 * scale, ORANGE);
 
         {
-            //crosshair
-            draw_line(
-                virtual_mouse_pos.x,
-                virtual_mouse_pos.y - 20.0,
-                virtual_mouse_pos.x,
-                virtual_mouse_pos.y + 20.0,
-                1.0,
-                RED,
-            );
+            //draw mouse crosshair
+            draw_line(mouse.x, mouse.y - 20.0, mouse.x, mouse.y + 20.0, 1.0, RED);
 
-            draw_line(
-                virtual_mouse_pos.x - 20.0,
-                virtual_mouse_pos.y,
-                virtual_mouse_pos.x + 20.0,
-                virtual_mouse_pos.y,
-                1.0,
-                RED,
-            );
-            draw_circle(virtual_mouse_pos.x, virtual_mouse_pos.y, 5.0, BLACK);
+            draw_line(mouse.x - 20.0, mouse.y, mouse.x + 20.0, mouse.y, 1.0, RED);
+            draw_circle(mouse.x, mouse.y, 5.0, BLACK);
         }
 
         let font_size = 16.0 * scale;
