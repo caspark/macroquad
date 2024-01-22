@@ -83,17 +83,8 @@ void main() {
 
 #[macroquad::main("Pixel IM-perfect")]
 async fn main() {
-    // Setup 'render_target', used to hold the rendering result so we can resize it
-    let mut render_targ = render_target(VIRTUAL_WIDTH as u32, VIRTUAL_HEIGHT as u32);
-    render_targ.texture.set_filter(FilterMode::Nearest);
-
     let chicken_tex = load_texture("examples/chicken.png").await.unwrap();
     chicken_tex.set_filter(FilterMode::Linear);
-
-    // Setup camera for the virtual screen, that will render to 'render_target'
-    let mut render_targ_cam =
-        Camera2D::from_display_rect(Rect::new(0., 0., VIRTUAL_WIDTH, VIRTUAL_HEIGHT));
-    render_targ_cam.render_target = Some(render_targ.clone());
 
     let material = load_material(
         ShaderSource::Glsl {
@@ -115,12 +106,8 @@ async fn main() {
     )
     .unwrap();
 
-    let mut scale = 4.0;
-
-    let mut last_res_and_scale = (Vec2::ZERO, scale);
-    let mut camera_offset_ideal = vec2(0., 0.);
-    let camera_speed = 1.1;
-
+    let mut scale = 4.0; // rendering scale
+    let mut camera_position = vec2(0., 0.); // camera position
     let mut freelook = true;
 
     let mut timer = 0.;
@@ -133,6 +120,7 @@ async fn main() {
     loop {
         timer += dt;
 
+        // scale controls
         if is_key_pressed(KeyCode::Equal) {
             if scale >= 4.0 {
                 scale *= 2.0;
@@ -149,26 +137,7 @@ async fn main() {
             println!("Scale up is now: {}", scale)
         }
 
-        let pressing =
-            |key| is_key_pressed(key) || (is_key_down(KeyCode::LeftShift) && is_key_down(key));
-
-        if pressing(KeyCode::W) {
-            camera_offset_ideal.y -= camera_speed;
-        } else if pressing(KeyCode::S) {
-            camera_offset_ideal.y += camera_speed;
-        }
-        if pressing(KeyCode::A) {
-            camera_offset_ideal.x -= camera_speed;
-        } else if pressing(KeyCode::D) {
-            camera_offset_ideal.x += camera_speed;
-        }
-        if is_key_pressed(KeyCode::R) {
-            camera_offset_ideal = vec2(0., 0.);
-        }
-        if is_key_pressed(KeyCode::F) {
-            freelook = !freelook;
-            println!("Freelook is now: {}", freelook);
-        }
+        // rendering controls
         if is_key_pressed(KeyCode::P) {
             use_shader = !use_shader;
             println!("Use shader is now: {}", use_shader);
@@ -186,61 +155,46 @@ async fn main() {
             );
         }
 
-        if !freelook {
-            let displacement: Vec2 = Vec2::ONE * 50.0;
-            camera_offset_ideal =
-                -displacement + Vec2::from_angle(camera_angle).rotate(displacement);
-            camera_angle += PI * dt;
+        {
+            // camera controls
+            if is_key_pressed(KeyCode::R) {
+                camera_position = vec2(0., 0.);
+            }
+
+            let camera_speed = 1.1;
+            if is_key_down(KeyCode::W) {
+                camera_position.y -= camera_speed;
+            } else if is_key_down(KeyCode::S) {
+                camera_position.y += camera_speed;
+            }
+            if is_key_down(KeyCode::A) {
+                camera_position.x -= camera_speed;
+            } else if is_key_down(KeyCode::D) {
+                camera_position.x += camera_speed;
+            }
+
+            if is_key_pressed(KeyCode::F) {
+                freelook = !freelook;
+                println!("Freelook is now: {}", freelook);
+            }
+            if !freelook {
+                let displacement: Vec2 = Vec2::ONE * 50.0;
+                camera_position =
+                    -displacement + Vec2::from_angle(camera_angle).rotate(displacement);
+                camera_angle += PI * dt;
+            }
         }
 
+        // Viewport calculations
         let res = vec2(screen_width(), screen_height());
-        let res_changed = res != last_res_and_scale.0 || last_res_and_scale.1 != scale;
-        let leftover_pixels = vec2(res.x % scale, res.y % scale);
-        // note extra pixel in each direction; the extra pixel will get upscaled and partially used
-        // to fill in the "leftover pixels"
-        let canvas_size = res;
-        // vec2(res.x - leftover_pixels.x, res.y - leftover_pixels.y);
-
-        if res_changed {
-            render_targ = render_target(canvas_size.x as u32, canvas_size.y as u32);
-            render_targ.texture.set_filter(FilterMode::Linear);
-
-            render_targ_cam =
-                Camera2D::from_display_rect(Rect::new(0., 0., canvas_size.x, canvas_size.y));
-            render_targ_cam.render_target = Some(render_targ.clone());
-        }
-
-        let camera_offset_pixel_aligned = camera_offset_ideal.floor();
-        render_targ_cam.target = vec2(
-            camera_offset_pixel_aligned.x + canvas_size.x / 2.,
-            camera_offset_pixel_aligned.y + canvas_size.y / 2.,
-        );
-        root_ui().label(
-            None,
-            &format!(
-                "Shader: {:?}, keep camera pixel aligned: {:?}, Camera target: {:?}",
-                use_shader, keep_camera_pixel_aligned, render_targ_cam.target
-            ),
-        );
-
-        // ------------------------------------------------------------------------
-        // Begin drawing the virtual screen to 'render_target'
-        // ------------------------------------------------------------------------
-        if use_shader {
-            gl_use_material(&material);
-        } else {
-            gl_use_default_material();
-        }
-        // set_camera(&render_targ_cam);
-
         let camera = {
             let p = if keep_camera_pixel_aligned {
-                camera_offset_pixel_aligned
+                camera_position.round()
             } else {
-                camera_offset_ideal
+                camera_position
             };
 
-            let rect = Rect::new(p.x, p.y, canvas_size.x, canvas_size.y);
+            let rect = Rect::new(p.x, p.y, res.x, res.y);
             Camera2D {
                 target: vec2(rect.x + rect.w / 2., rect.y + rect.h / 2.),
                 zoom: vec2(1. / rect.w * 2., 1. / rect.h * 2.),
@@ -252,10 +206,43 @@ async fn main() {
 
         let mouse = camera.screen_to_world(vec2(mouse_position().0, mouse_position().1));
 
-        clear_background(Color::new(0.0, 0.0, 50.0, 0.0));
+        // ------------------------------------------------------------------------
+        // Begin drawing
+        // ------------------------------------------------------------------------
+        if use_shader {
+            gl_use_material(&material);
+        } else {
+            gl_use_default_material();
+        }
+
+        clear_background(WHITE);
+
+        root_ui().label(
+            Some(vec2(40., 0.)),
+            &format!(
+                "FPS={:?}, res={:?}, scale={:?} (= or -), camera pos={:?} (F or WASD)",
+                get_fps(),
+                res,
+                scale,
+                camera_position
+            ),
+        );
+        root_ui().label(
+            Some(vec2(40., 20.)),
+            &format!(
+                "Shader (P): {:?}, keep camera pixel aligned (V): {:?}",
+                use_shader, keep_camera_pixel_aligned
+            ),
+        );
 
         draw_circle(65.0 * scale, 50. * scale, 20.0 * scale, GREEN);
         draw_circle(130.0 * scale, 65. * scale, 35.0 * scale, BLUE);
+        draw_circle(
+            (15.0 + 10. * timer.cos()) * scale,
+            20. * scale,
+            5.0 * scale,
+            ORANGE,
+        );
 
         // draw a rectangle grid
         let loop_max = 10 * scale as usize;
@@ -276,49 +263,25 @@ async fn main() {
             }
         }
 
-        draw_circle(15.0 + (10. * timer.cos()), 40., 5.0 * scale, ORANGE);
-
         {
             //draw mouse crosshair
             draw_line(mouse.x, mouse.y - 20.0, mouse.x, mouse.y + 20.0, 1.0, RED);
-
             draw_line(mouse.x - 20.0, mouse.y, mouse.x + 20.0, mouse.y, 1.0, RED);
-            draw_circle(mouse.x, mouse.y, 5.0, BLACK);
+            draw_circle(mouse.x, mouse.y, 3.0, BLACK);
         }
 
         let font_size = 16.0 * scale;
         draw_text(
             "Hello Pixel IM-perfect",
             20.0,
-            30.0 + font_size,
+            10.0 + font_size,
             font_size,
             DARKGRAY,
         );
 
-        // ------------------------------------------------------------------------
-        // Begin drawing the window screen
-        // ------------------------------------------------------------------------
-
-        root_ui().label(
-            Some(vec2(0., screen_height() - 48.)),
-            &format!("FPS={:?}", get_fps()),
-        );
-        root_ui().label(
-            Some(vec2(0., screen_height() - 32.)),
-            &format!(
-                "Res={:?}, scale={:?}, image size={:?}, leftover={:?}",
-                res, scale, canvas_size, leftover_pixels
-            ),
-        );
-        root_ui().label(
-            Some(vec2(0., screen_height() - 16.)),
-            &format!(
-                "camera_offset_ideal={:?}, camera_offset_pixel_aligned={:?}",
-                camera_offset_ideal, camera_offset_pixel_aligned
-            ),
-        );
-
         {
+            // draw a bunch of sprites with different movement patterns to demonstrate artifacts
+
             enum Trans {
                 Fixed,
                 LeftRight,
@@ -343,15 +306,7 @@ async fn main() {
             let trans_sets = [Trans::Fixed, Trans::LeftRight, Trans::UpDown, Trans::Circle];
             let trans_dist = 10.0 * scale;
             let spacing = 34.0 * scale;
-
-            let max_width = trans_sets.len() as f32 * spacing;
-            let max_height = scale_sets.len() as f32 * spacing;
-            for (i, _trans_set) in trans_sets.iter().enumerate() {
-                draw_rectangle(spacing * i as f32, spacing, 1.0, max_height, GRAY);
-                for (j, _scale_set) in scale_sets.iter().enumerate() {
-                    draw_rectangle(0.0, spacing * (j + 1) as f32, max_width, 1.0, GRAY);
-                }
-            }
+            let y_offset = 20.0 * scale;
 
             for (i, trans_set) in trans_sets.iter().enumerate() {
                 for (j, scale_set) in scale_sets.iter().enumerate() {
@@ -378,7 +333,7 @@ async fn main() {
                     draw_texture_ex(
                         &chicken_tex,
                         spacing * i as f32 + x,
-                        spacing * (j + 1) as f32 + y,
+                        spacing * (j) as f32 + y + y_offset,
                         WHITE,
                         params,
                     );
@@ -388,21 +343,6 @@ async fn main() {
 
         gl_use_default_material();
 
-        // Draw 'render_target' to window screen, properly scaled
-        // draw_texture_ex(
-        //     &render_targ.texture,
-        //     0.,
-        //     0.,
-        //     WHITE,
-        //     DrawTextureParams {
-        //         dest_size: Some(vec2(canvas_size.x * scale, canvas_size.y * scale)),
-        //         flip_y: true, // Must flip y otherwise 'render_target' will be upside down
-        //         ..Default::default()
-        //     },
-        // );
-
         next_frame().await;
-
-        last_res_and_scale = (res, scale);
     }
 }
