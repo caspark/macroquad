@@ -223,12 +223,12 @@ async fn main() {
 
         draw_circle(virtual_mouse_pos.x, virtual_mouse_pos.y, 5.0, BLACK);
 
-        draw_circle(15.0 + (10. * timer.cos()).floor(), 30. + 10., 5.0, ORANGE);
+        draw_circle(15.0 + (10. * timer.cos()).round(), 40., 5.0, ORANGE);
 
         draw_texture(
             &rustacean_tex,
             10.0 + (10. * timer.cos()).round(),
-            60.,
+            60. + (10. * timer.sin()).round(),
             WHITE,
         );
 
@@ -261,6 +261,10 @@ async fn main() {
 
         clear_background(GRAY); // Will be the letterbox color
 
+        root_ui().label(
+            Some(vec2(0., screen_height() - 48.)),
+            &format!("FPS={:?}", get_fps()),
+        );
         root_ui().label(
             Some(vec2(0., screen_height() - 32.)),
             &format!(
@@ -299,7 +303,7 @@ async fn main() {
         );
 
         {
-            let v = vec2(10.0 + (10. * timer.cos()), 80.);
+            let v = vec2(10.0 + (10. * timer.cos()), 80. + (10. * timer.sin()));
             let v = render_targ_cam.world_to_screen(v);
             println!("v: {:?}", v);
             let s = rustacean_tex.size() * scale;
