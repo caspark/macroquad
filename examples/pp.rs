@@ -1,17 +1,22 @@
 use std::f32::consts::PI;
 
 use macroquad::{prelude::*, ui::root_ui};
+use miniquad::{BlendFactor, BlendState, BlendValue, Equation, PipelineParams};
 
 const VIRTUAL_WIDTH: f32 = 1280.0;
 const VIRTUAL_HEIGHT: f32 = 720.0;
 
+// source: https://github.com/code-disaster/gdx-mellow-demo
+// adapted from `mod shader` from quad_gl.rs in miniquad
 const VERTEX_SHADER: &'static str = "#version 100
 precision lowp float;
 
 attribute vec3 position;
 attribute vec2 texcoord;
+attribute vec4 color0;
 
-varying vec2 uv;
+varying lowp vec2 uv;
+varying lowp vec4 color;
 
 uniform mat4 Model;
 uniform mat4 Projection;
@@ -22,6 +27,8 @@ uniform vec4 u_sampleProperties;
 varying vec2 v_texCoords;
 
 void main() {
+    color = color0 / 255.0;
+
     vec2 uvSize = u_textureSizes.xy;
     float upscale = u_textureSizes.z;
 
@@ -37,7 +44,8 @@ void main() {
 const FRAGMENT_SHADER: &'static str = "#version 100
 precision lowp float;
 
-varying vec2 uv;
+varying lowp vec4 color;
+varying lowp vec2 uv;
 
 uniform sampler2D Texture;
 
@@ -50,7 +58,7 @@ void main() {
     vec2 uvSize = u_textureSizes.xy;
     float upscale = u_textureSizes.z;
 
-    gl_FragColor = texture2D(Texture, uv);
+    gl_FragColor = color * texture2D(Texture, uv);
 }
 ";
 
@@ -60,7 +68,7 @@ async fn main() {
     let mut render_targ = render_target(VIRTUAL_WIDTH as u32, VIRTUAL_HEIGHT as u32);
     render_targ.texture.set_filter(FilterMode::Nearest);
 
-    let rustacean_tex = load_texture("examples/rustacean_happy.png").await.unwrap();
+    let rustacean_tex = load_texture("examples/chicken.png").await.unwrap();
     rustacean_tex.set_filter(FilterMode::Nearest);
 
     // Setup camera for the virtual screen, that will render to 'render_target'
@@ -78,6 +86,15 @@ async fn main() {
                 ("u_textureSizes".to_owned(), UniformType::Float4),
                 ("u_sampleProperties".to_owned(), UniformType::Float4),
             ],
+            pipeline_params: PipelineParams {
+                depth_write: false,
+                color_blend: Some(BlendState::new(
+                    Equation::Add,
+                    BlendFactor::Value(BlendValue::SourceAlpha),
+                    BlendFactor::OneMinusValue(BlendValue::SourceAlpha),
+                )),
+                ..Default::default()
+            },
             ..Default::default()
         },
     )
@@ -186,7 +203,7 @@ async fn main() {
         // ------------------------------------------------------------------------
         set_camera(&render_targ_cam);
 
-        clear_background(LIGHTGRAY);
+        clear_background(Color::new(0.0, 0.0, 0.0, 0.0));
 
         draw_text("Hello Pixel Perfect", 20.0, 20.0, 16.0, DARKGRAY);
         draw_circle(65.0, 50., 20.0, GREEN);
@@ -208,23 +225,41 @@ async fn main() {
 
         draw_circle(15.0 + (10. * timer.cos()).floor(), 30. + 10., 5.0, ORANGE);
 
-        draw_texture(&rustacean_tex, 10.0 + (10. * timer.cos()).floor(), 60., WHITE);
-
-        draw_rectangle_lines(
-            virtual_mouse_pos.x.floor(),
-            virtual_mouse_pos.y.floor(),
-            100.,
-            100.,
-            1.0,
-            RED,
+        draw_texture(
+            &rustacean_tex,
+            10.0 + (10. * timer.cos()).round(),
+            60.,
+            WHITE,
         );
+
+        {
+            //crosshair
+            draw_line(
+                virtual_mouse_pos.x.round(),
+                virtual_mouse_pos.y.round() - 20.0,
+                virtual_mouse_pos.x.round(),
+                virtual_mouse_pos.y.round() + 20.0,
+                1.0,
+                RED,
+            );
+
+            draw_line(
+                virtual_mouse_pos.x.round() - 20.0,
+                virtual_mouse_pos.y.round(),
+                virtual_mouse_pos.x.round() + 20.0,
+                virtual_mouse_pos.y.round(),
+                1.0,
+                RED,
+            );
+            draw_circle(virtual_mouse_pos.x, virtual_mouse_pos.y, 5.0, BLACK);
+        }
 
         // ------------------------------------------------------------------------
         // Begin drawing the window screen
         // ------------------------------------------------------------------------
         set_default_camera();
 
-        clear_background(PURPLE); // Will be the letterbox color
+        clear_background(GRAY); // Will be the letterbox color
 
         root_ui().label(
             Some(vec2(0., screen_height() - 32.)),
@@ -247,7 +282,6 @@ async fn main() {
                 .as_ivec2()
                 .as_vec2();
 
-            println!("diff: {:?}", diff);
             material.set_uniform("u_textureSizes", [canvas_size.x, canvas_size.y, scale, 0.0]);
             material.set_uniform("u_sampleProperties", [0.0, 0.0, diff.x, 1.0 - diff.y]); // 1-diff.y because texture gets v-flipped
             gl_use_material(&material);
@@ -263,6 +297,24 @@ async fn main() {
                 ..Default::default()
             },
         );
+
+        {
+            let v = vec2(10.0 + (10. * timer.cos()), 80.);
+            let v = render_targ_cam.world_to_screen(v);
+            println!("v: {:?}", v);
+            let s = rustacean_tex.size() * scale;
+            draw_texture_ex(
+                &rustacean_tex,
+                v.x,
+                v.y,
+                RED,
+                DrawTextureParams {
+                    dest_size: Some(s),
+                    ..Default::default()
+                },
+            );
+        }
+
         gl_use_default_material();
 
         next_frame().await;
