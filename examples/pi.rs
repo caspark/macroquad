@@ -1,4 +1,3 @@
-use core::num;
 use std::f32::consts::PI;
 
 use macroquad::{prelude::*, ui::root_ui};
@@ -117,10 +116,6 @@ async fn main() {
     .unwrap();
 
     let mut scale = 4.0;
-
-    // Desired behavior:
-    // Given scale factor, the screen width/height will not divide by it evenly always.
-    // In that case, we need to find the gap.
 
     let mut last_res_and_scale = (Vec2::ZERO, scale);
     let mut camera_offset_ideal = vec2(0., 0.);
@@ -268,6 +263,7 @@ async fn main() {
         draw_circle(65.0, 50., 20.0, WHITE);
         draw_circle(130.0, 65., 35.0, BLUE);
 
+        // draw a rectangle grid
         let loop_max = 10 * scale as usize;
         for x in (0..loop_max).step_by(scale as usize * 2) {
             for y in (0..loop_max).step_by(scale as usize * 2) {
@@ -344,11 +340,6 @@ async fn main() {
             ),
         );
 
-        if use_shader {
-            gl_use_material(&material);
-        } else {
-            gl_use_default_material();
-        }
         {
             enum Trans {
                 Fixed,
