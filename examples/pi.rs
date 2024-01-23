@@ -108,6 +108,7 @@ async fn main() {
     let mut scale = 4.0; // rendering scale
     let mut camera_position = vec2(0., 0.); // camera position
     let mut freelook = true;
+    let mut center_camera = false;
 
     let mut timer = 0.;
     let dt = 1. / 60.;
@@ -177,6 +178,11 @@ async fn main() {
                 freelook = !freelook;
                 println!("Freelook is now: {}", freelook);
             }
+            if is_key_pressed(KeyCode::C) {
+                center_camera = !center_camera;
+                println!("Center camera is now: {}", center_camera);
+            }
+
             if !freelook {
                 let displacement: Vec2 = Vec2::ONE * 50.0 / scale;
                 camera_position =
@@ -207,8 +213,13 @@ async fn main() {
             };
 
             let rect = Rect::new(p.x, p.y, res.x, res.y);
+            let offset = if center_camera {
+                vec2(0., 0.)
+            } else {
+                vec2(rect.w, rect.h) / 2. / scale
+            };
             Camera2D {
-                target: vec2(rect.x + rect.w / 2. / scale, rect.y + rect.h / 2. / scale),
+                target: vec2(rect.x + offset.x, rect.y + offset.y),
                 zoom: vec2(1. / rect.w * 2. * scale, 1. / rect.h * 2. * scale),
                 offset: vec2(0., 0.),
                 ..Default::default()
