@@ -158,7 +158,7 @@ async fn main() {
                 camera_position = vec2(0., 0.);
             }
 
-            let camera_speed = 1.1;
+            let camera_speed = 0.3;
             if is_key_down(KeyCode::W) {
                 camera_position.y -= camera_speed;
             } else if is_key_down(KeyCode::S) {
