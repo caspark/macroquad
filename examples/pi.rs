@@ -80,6 +80,8 @@ void main() {
 
 #[macroquad::main("Pixel IM-perfect")]
 async fn main() {
+    // NB: important to have a transparent border around the sprite to avoid
+    // crawling at pixels which touch the edge of the sprite when the shader is on
     let chicken_tex = load_texture("examples/chicken.png").await.unwrap();
     chicken_tex.set_filter(FilterMode::Linear);
 
