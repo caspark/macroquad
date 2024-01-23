@@ -3,9 +3,6 @@ use std::f32::consts::PI;
 use macroquad::{prelude::*, ui::root_ui};
 use miniquad::{BlendFactor, BlendState, BlendValue, Equation, PipelineParams};
 
-const VIRTUAL_WIDTH: f32 = 1280.0;
-const VIRTUAL_HEIGHT: f32 = 720.0;
-
 const VERTEX_SHADER: &'static str = "#version 130
 precision lowp float;
 
