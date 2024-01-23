@@ -181,7 +181,7 @@ async fn main() {
                 let displacement: Vec2 = Vec2::ONE * 50.0 / scale;
                 camera_position =
                     -displacement + Vec2::from_angle(camera_angle).rotate(displacement);
-                camera_angle += PI * dt;
+                camera_angle += PI * dt * 0.25;
             }
         }
 
