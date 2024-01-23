@@ -113,6 +113,7 @@ async fn main() {
 
     let mut use_shader = true;
     let mut keep_camera_pixel_aligned = false;
+    let mut keep_mouse_pixel_aligned = true;
 
     loop {
         timer += dt;
@@ -175,33 +176,45 @@ async fn main() {
                 println!("Freelook is now: {}", freelook);
             }
             if !freelook {
-                let displacement: Vec2 = Vec2::ONE * 50.0;
+                let displacement: Vec2 = Vec2::ONE * 50.0 / scale;
                 camera_position =
                     -displacement + Vec2::from_angle(camera_angle).rotate(displacement);
                 camera_angle += PI * dt;
             }
         }
 
+        if is_key_pressed(KeyCode::M) {
+            keep_mouse_pixel_aligned = !keep_mouse_pixel_aligned;
+            println!(
+                "Keep mouse pixel aligned is now: {}",
+                keep_mouse_pixel_aligned
+            );
+        }
+
         // Viewport calculations
         let res = vec2(screen_width(), screen_height());
         let camera = {
             let p = if keep_camera_pixel_aligned {
-                camera_position.round()
+                // to round camera position to nearest SCREEN pixel, multiply by
+                // scale first, then round, then divide by scale again.
+                // Otherwise we'll only round to nearest WORLD pixel, which will
+                // be `scale` times bigger (and give jerkier camera movement).
+                (camera_position * scale).round() / scale
             } else {
                 camera_position
             };
 
             let rect = Rect::new(p.x, p.y, res.x, res.y);
             Camera2D {
-                target: vec2(rect.x + rect.w / 2., rect.y + rect.h / 2.),
-                zoom: vec2(1. / rect.w * 2., 1. / rect.h * 2.),
+                target: vec2(rect.x + rect.w / 2. / scale, rect.y + rect.h / 2. / scale),
+                zoom: vec2(1. / rect.w * 2. * scale, 1. / rect.h * 2. * scale),
                 offset: vec2(0., 0.),
                 ..Default::default()
             }
         };
         set_camera(&camera);
 
-        let mouse = camera.screen_to_world(vec2(mouse_position().0, mouse_position().1));
+        let mouse_raw = camera.screen_to_world(vec2(mouse_position().0, mouse_position().1));
 
         // ------------------------------------------------------------------------
         // Begin drawing
@@ -225,31 +238,26 @@ async fn main() {
             ),
         );
         root_ui().label(
-            Some(vec2(40., 20.)),
+            Some(vec2(40., 16.)),
             &format!(
                 "Shader (P): {:?}, keep camera pixel aligned (V): {:?}",
                 use_shader, keep_camera_pixel_aligned
             ),
         );
 
-        draw_circle(65.0 * scale, 50. * scale, 20.0 * scale, GREEN);
-        draw_circle(130.0 * scale, 65. * scale, 35.0 * scale, BLUE);
-        draw_circle(
-            (15.0 + 10. * timer.cos()) * scale,
-            20. * scale,
-            5.0 * scale,
-            ORANGE,
-        );
+        draw_circle(65.0, 50., 20.0, GREEN);
+        draw_circle(130.0, 65., 35.0, BLUE);
+        draw_circle(15.0 + 10. * timer.cos(), 20., 5.0, ORANGE);
 
         // draw a rectangle grid
-        let loop_max = 10 * scale as usize;
-        for x in (0..loop_max).step_by(scale as usize * 2) {
-            for y in (0..loop_max).step_by(scale as usize * 2) {
+        let loop_max = 10 as usize;
+        for x in (0..loop_max).step_by(2) {
+            for y in (0..loop_max).step_by(2) {
                 draw_rectangle(
                     x as f32,
                     y as f32,
-                    scale,
-                    scale,
+                    1.,
+                    1.,
                     Color::new(
                         x as f32 / loop_max as f32,
                         y as f32 / loop_max as f32,
@@ -260,14 +268,7 @@ async fn main() {
             }
         }
 
-        {
-            //draw mouse crosshair
-            draw_line(mouse.x, mouse.y - 20.0, mouse.x, mouse.y + 20.0, 1.0, RED);
-            draw_line(mouse.x - 20.0, mouse.y, mouse.x + 20.0, mouse.y, 1.0, RED);
-            draw_circle(mouse.x, mouse.y, 3.0, BLACK);
-        }
-
-        let font_size = 16.0 * scale;
+        let font_size = 16.0;
         draw_text(
             "Hello Pixel IM-perfect",
             20.0,
@@ -301,9 +302,9 @@ async fn main() {
                 Scale::Rotation,
             ];
             let trans_sets = [Trans::Fixed, Trans::LeftRight, Trans::UpDown, Trans::Circle];
-            let trans_dist = 10.0 * scale;
-            let spacing = 34.0 * scale;
-            let y_offset = 20.0 * scale;
+            let trans_dist = 10.0;
+            let spacing = 34.0;
+            let y_offset = 20.0;
 
             for (i, trans_set) in trans_sets.iter().enumerate() {
                 for (j, scale_set) in scale_sets.iter().enumerate() {
@@ -312,7 +313,7 @@ async fn main() {
                         Scale::Size | Scale::SizeAndRotation => timer.cos().abs(),
                     };
                     let params = DrawTextureParams {
-                        dest_size: Some(chicken_tex_size * size_mult * scale),
+                        dest_size: Some(chicken_tex_size * size_mult),
                         rotation: match scale_set {
                             Scale::Fixed | Scale::Size => 0.0,
                             Scale::SizeAndRotation | Scale::Rotation => PI * timer.cos(),
@@ -336,6 +337,51 @@ async fn main() {
                     );
                 }
             }
+        }
+
+        {
+            //draw red mouse crosshair
+            let len = 10.0;
+            let mut mouse_aligned = if keep_mouse_pixel_aligned {
+                mouse_raw.floor()
+            } else {
+                mouse_raw
+            };
+            root_ui().label(
+                Some(vec2(40., 32.)),
+                &format!(
+                    "Mouse pixel snap (M): {:?}, mouse pos: {:?}",
+                    keep_mouse_pixel_aligned, mouse_aligned
+                ),
+            );
+            // drawing 1 px wide rects so offset by a further 0.5 for perfect alignment
+            mouse_aligned += vec2(0.5, 0.5);
+            draw_line(
+                mouse_aligned.x,
+                mouse_aligned.y - len,
+                mouse_aligned.x,
+                mouse_aligned.y + len,
+                1.0,
+                Color::new(1.0, 0.0, 0.0, 0.5),
+            );
+            draw_line(
+                mouse_aligned.x - len,
+                mouse_aligned.y,
+                mouse_aligned.x + len,
+                mouse_aligned.y,
+                1.0,
+                Color::new(1.0, 0.0, 0.0, 0.5),
+            );
+            // and draw a single black pixel at the exact raw mouse position
+            let raw_cursor_size_in_pixels = 4.0;
+            let raw_cursor_size = raw_cursor_size_in_pixels / scale;
+            draw_rectangle(
+                mouse_raw.x,
+                mouse_raw.y,
+                raw_cursor_size,
+                raw_cursor_size,
+                BLACK,
+            );
         }
 
         gl_use_default_material();
