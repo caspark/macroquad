@@ -50,6 +50,7 @@ mod quad_gl;
 
 pub mod audio;
 pub mod camera;
+pub mod capture;
 pub mod color;
 pub mod file;
 pub mod input;

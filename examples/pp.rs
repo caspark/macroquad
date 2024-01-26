@@ -1,6 +1,6 @@
 use std::f32::consts::PI;
 
-use macroquad::{prelude::*, ui::root_ui};
+use macroquad::{capture::{self, ScreenCapture}, prelude::*, ui::root_ui};
 use miniquad::{BlendFactor, BlendState, BlendValue, Equation, PipelineParams};
 
 const VIRTUAL_WIDTH: f32 = 1280.0;
@@ -108,7 +108,7 @@ async fn main() {
 
     let mut last_res_and_scale = (Vec2::ZERO, scale);
     let mut camera_offset_ideal = vec2(0., 0.);
-    let camera_speed = 0.1;
+    let camera_speed = 0.3;
 
     let mut freelook = true;
 
@@ -119,8 +119,24 @@ async fn main() {
 
     let mut timer = 0.;
 
+    let mut maybe_capturing: Option<ScreenCapture> = None;
+
     loop {
         timer += dt;
+
+
+        if is_key_pressed(KeyCode::F11) {
+            // try to resize screen to perfect size (this won't be instant, but oh well)
+            request_new_screen_size(capture::IDEAL_SIZE.x, capture::IDEAL_SIZE.y);
+        }
+        if is_key_pressed(KeyCode::F12) {
+            if let Some(ref mut capture) = maybe_capturing {
+                capture.end_capture();
+                maybe_capturing = None;
+            } else {
+                maybe_capturing = Some(capture::ScreenCapture::begin_capture());
+            }
+        }
 
         if is_key_pressed(KeyCode::Equal) {
             scale *= 2.0;
@@ -130,17 +146,14 @@ async fn main() {
             println!("Scale up is now: {}", scale)
         }
 
-        let pressing =
-            |key| is_key_pressed(key) || (is_key_down(KeyCode::LeftShift) && is_key_down(key));
-
-        if pressing(KeyCode::W) {
+        if is_key_down(KeyCode::W) {
             camera_offset_ideal.y -= camera_speed;
-        } else if pressing(KeyCode::S) {
+        } else if is_key_down(KeyCode::S) {
             camera_offset_ideal.y += camera_speed;
         }
-        if pressing(KeyCode::A) {
+        if is_key_down(KeyCode::A) {
             camera_offset_ideal.x -= camera_speed;
-        } else if pressing(KeyCode::D) {
+        } else if is_key_down(KeyCode::D) {
             camera_offset_ideal.x += camera_speed;
         }
         if is_key_pressed(KeyCode::R) {
@@ -225,10 +238,19 @@ async fn main() {
 
         draw_circle(15.0 + (10. * timer.cos()).round(), 40., 5.0, ORANGE);
 
+
+        draw_texture(
+            &chicken_tex,
+            20.0,
+            50.,
+            // 60. + (20. * timer.sin()).round(),
+            WHITE,
+        );
+
         draw_texture(
             &chicken_tex,
             10.0 + (20. * timer.cos()).round(),
-            60.,
+            70.,
             // 60. + (20. * timer.sin()).round(),
             WHITE,
         );
@@ -303,24 +325,28 @@ async fn main() {
             },
         );
 
-        {
-            let v = vec2(10.0 + (10. * timer.cos()), 80. + (10. * timer.sin()));
-            let v = render_targ_cam.world_to_screen(v);
-            println!("v: {:?}", v);
-            let s = chicken_tex.size() * scale;
-            draw_texture_ex(
-                &chicken_tex,
-                v.x,
-                v.y,
-                RED,
-                DrawTextureParams {
-                    dest_size: Some(s),
-                    ..Default::default()
-                },
-            );
-        }
+        // {
+        //     let v = vec2(10.0 + (10. * timer.cos()), 80. + (10. * timer.sin()));
+        //     let v = render_targ_cam.world_to_screen(v);
+        //     println!("v: {:?}", v);
+        //     let s = chicken_tex.size() * scale;
+        //     draw_texture_ex(
+        //         &chicken_tex,
+        //         v.x,
+        //         v.y,
+        //         RED,
+        //         DrawTextureParams {
+        //             dest_size: Some(s),
+        //             ..Default::default()
+        //         },
+        //     );
+        // }
 
         gl_use_default_material();
+
+        if let Some(ref mut cap) = maybe_capturing {
+            cap.save_frame(get_screen_data());
+        }
 
         next_frame().await;
 

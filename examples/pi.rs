@@ -1,6 +1,6 @@
 use std::f32::consts::PI;
 
-use macroquad::{prelude::*, ui::root_ui};
+use macroquad::{capture::{self, ScreenCapture}, prelude::*, ui::root_ui};
 use miniquad::{BlendFactor, BlendState, BlendValue, Equation, PipelineParams};
 
 const VERTEX_SHADER: &'static str = "#version 130
@@ -118,8 +118,24 @@ async fn main() {
     let mut keep_camera_pixel_aligned = false;
     let mut keep_mouse_pixel_aligned = true;
 
+    let mut maybe_capturing: Option<ScreenCapture> = None;
+
     loop {
         timer += dt;
+
+
+        if is_key_pressed(KeyCode::F11) {
+            // try to resize screen to perfect size (this won't be instant, but oh well)
+            request_new_screen_size(capture::IDEAL_SIZE.x, capture::IDEAL_SIZE.y);
+        }
+        if is_key_pressed(KeyCode::F12) {
+            if let Some(ref mut capture) = maybe_capturing {
+                capture.end_capture();
+                maybe_capturing = None;
+            } else {
+                maybe_capturing = Some(capture::ScreenCapture::begin_capture());
+            }
+        }
 
         // scale controls
         if is_key_pressed(KeyCode::Equal) {
@@ -398,6 +414,10 @@ async fn main() {
         }
 
         gl_use_default_material();
+
+        if let Some(ref mut cap) = maybe_capturing {
+            cap.save_frame(get_screen_data());
+        }
 
         next_frame().await;
     }
