@@ -49,10 +49,11 @@ fn waker() -> Waker {
         RawWaker::new(data, &VTABLE)
     }
     unsafe fn wake(_data: *const ()) {
-        panic!(
-            "macroquad does not support waking futures, please use coroutines, \
-            otherwise your pending future will block until the next frame"
-        )
+        // Caspar patch: make wake a no-op instead of a panic
+        // panic!(
+        //     "macroquad does not support waking futures, please use coroutines, \
+        //     otherwise your pending future will block until the next frame"
+        // )
     }
     unsafe fn wake_by_ref(data: *const ()) {
         wake(data)
