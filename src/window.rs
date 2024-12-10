@@ -129,8 +129,14 @@ where
         let backtrace_string = format!("{:?}", backtrace::Backtrace::new());
         #[cfg(not(feature = "backtrace"))]
         let backtrace_string = format!("Macroquad compiled without \"backtrace\" feature");
-        crate::logging::error!("{}", message);
-        crate::logging::error!("{}", backtrace_string);
+
+        crate::logging::error!("Macroquad caught a panic: {}", message);
+        if let Some(s) = info.payload().downcast_ref::<&str>() {
+            crate::logging::error!("Panic payload: {}", s);
+        } else if let Some(s) = info.payload().downcast_ref::<String>() {
+            crate::logging::error!("Panic payload: {}", s);
+        }
+        crate::logging::error!("Panic backtrace follows: {}", backtrace_string);
 
         crate::get_context().recovery_future = Some(Box::pin(future(message, backtrace_string)));
     }));
