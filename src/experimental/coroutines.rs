@@ -200,7 +200,7 @@ impl<T: 'static + Any> Coroutine<T> {
 }
 
 pub fn start_coroutine<T: 'static + Any>(
-    future: impl Future<Output = T> + 'static + Send,
+    future: impl Future<Output = T> + 'static,
 ) -> Coroutine<T> {
     let context = &mut get_context().coroutines_context;
 
