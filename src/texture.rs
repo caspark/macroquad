@@ -357,12 +357,16 @@ pub struct RenderTargetParams {
     /// depth: true creates a depth render target attachment and allows
     /// such a render target being used for a depth-testing cameras
     pub depth: bool,
+
+    /// Texture format for the color attachment. Defaults to RGBA8.
+    pub format: miniquad::TextureFormat,
 }
 impl Default for RenderTargetParams {
     fn default() -> RenderTargetParams {
         RenderTargetParams {
             sample_count: 1,
             depth: false,
+            format: miniquad::TextureFormat::RGBA8,
         }
     }
 }
@@ -413,6 +417,7 @@ pub fn render_target_ex(width: u32, height: u32, params: RenderTargetParams) -> 
         width,
         height,
         sample_count: params.sample_count,
+        format: params.format,
         ..Default::default()
     });
     let depth_texture = if params.depth {
@@ -435,6 +440,7 @@ pub fn render_target_ex(width: u32, height: u32, params: RenderTargetParams) -> 
             get_quad_context().new_render_texture(miniquad::TextureParams {
                 width,
                 height,
+                format: params.format,
                 ..Default::default()
             });
         render_pass = get_quad_context().new_render_pass_mrt(
