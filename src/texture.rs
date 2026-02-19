@@ -346,6 +346,9 @@ pub struct RenderPass {
     pub color_texture: Texture2D,
     pub depth_texture: Option<Texture2D>,
     pub(crate) render_pass: Arc<miniquad::RenderPass>,
+    /// Textures created for the render pass internals (MSAA renderbuffers, depth
+    /// attachments) that are not managed by any Texture2D. Explicitly deleted on drop.
+    pub(crate) pass_owned_textures: Vec<miniquad::TextureId>,
 }
 
 #[derive(Debug, Clone)]
@@ -381,8 +384,11 @@ impl RenderPass {
 impl Drop for RenderPass {
     fn drop(&mut self) {
         if Arc::strong_count(&self.render_pass) < 2 {
-            let context = get_quad_context();
-            context.delete_render_pass(*self.render_pass);
+            let ctx = get_quad_context();
+            ctx.delete_render_pass(*self.render_pass);
+            for tex in &self.pass_owned_textures {
+                ctx.delete_texture(*tex);
+            }
         }
     }
 }
@@ -435,6 +441,8 @@ pub fn render_target_ex(width: u32, height: u32, params: RenderTargetParams) -> 
     };
     let render_pass;
     let texture;
+    let mut pass_owned_textures = Vec::new();
+
     if params.sample_count > 1 {
         let color_resolve_texture =
             get_quad_context().new_render_texture(miniquad::TextureParams {
@@ -449,29 +457,28 @@ pub fn render_target_ex(width: u32, height: u32, params: RenderTargetParams) -> 
             depth_texture,
         );
         texture = color_resolve_texture;
+        // MSAA renderbuffer: no Texture2D manages it, render pass must clean it up.
+        pass_owned_textures.push(color_texture);
     } else {
         render_pass = get_quad_context().new_render_pass_mrt(&[color_texture], None, depth_texture);
         texture = color_texture;
     }
 
-    let texture = if params.sample_count > 1 {
-        // MSAA: resolve texture is separate from render pass color attachment,
-        // so Texture2D owns it via managed handle (garbage collected on drop).
-        Texture2D {
-            texture: context.textures.store_texture(texture),
-        }
-    } else {
-        // Non-MSAA: texture IS the render pass color attachment. Using store_texture
-        // would cause a double-delete: delete_render_pass deletes the color attachment,
-        // and garbage_collect would delete it again (potentially after GL reuses the ID
-        // for a new texture). Use unmanaged so only delete_render_pass handles cleanup.
-        Texture2D::unmanaged(texture)
+    // Depth texture is never exposed via Texture2D, so always pass-owned.
+    if let Some(dt) = depth_texture {
+        pass_owned_textures.push(dt);
+    }
+
+    // User-facing texture is always Managed — safe with Arc ref-counting.
+    let texture = Texture2D {
+        texture: context.textures.store_texture(texture),
     };
 
     let render_pass = RenderPass {
         color_texture: texture.clone(),
         depth_texture: None,
         render_pass: Arc::new(render_pass),
+        pass_owned_textures,
     };
     RenderTarget {
         texture,
