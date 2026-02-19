@@ -454,8 +454,18 @@ pub fn render_target_ex(width: u32, height: u32, params: RenderTargetParams) -> 
         texture = color_texture;
     }
 
-    let texture = Texture2D {
-        texture: context.textures.store_texture(texture),
+    let texture = if params.sample_count > 1 {
+        // MSAA: resolve texture is separate from render pass color attachment,
+        // so Texture2D owns it via managed handle (garbage collected on drop).
+        Texture2D {
+            texture: context.textures.store_texture(texture),
+        }
+    } else {
+        // Non-MSAA: texture IS the render pass color attachment. Using store_texture
+        // would cause a double-delete: delete_render_pass deletes the color attachment,
+        // and garbage_collect would delete it again (potentially after GL reuses the ID
+        // for a new texture). Use unmanaged so only delete_render_pass handles cleanup.
+        Texture2D::unmanaged(texture)
     };
 
     let render_pass = RenderPass {
