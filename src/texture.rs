@@ -797,6 +797,21 @@ impl Texture2D {
         width: i32,
         height: i32,
     ) {
+        assert!(
+            width > 0 && height > 0,
+            "update_part: width and height must be positive, got {}x{}",
+            width,
+            height,
+        );
+        assert!(
+            image.bytes.len() >= (width * height) as usize * 4,
+            "update_part: image has {} bytes but {}x{} region needs {}",
+            image.bytes.len(),
+            width,
+            height,
+            (width * height) as usize * 4,
+        );
+
         let ctx = get_quad_context();
 
         ctx.texture_update_part(
@@ -806,6 +821,42 @@ impl Texture2D {
             width,
             height,
             &image.bytes,
+        );
+    }
+
+    /// Uploads raw bytes to part of this texture.
+    pub fn update_part_from_bytes(
+        &self,
+        bytes: &[u8],
+        x_offset: i32,
+        y_offset: i32,
+        width: i32,
+        height: i32,
+    ) {
+        assert!(
+            width > 0 && height > 0,
+            "update_part_from_bytes: width and height must be positive, got {}x{}",
+            width,
+            height,
+        );
+        assert!(
+            bytes.len() >= (width * height) as usize * 4,
+            "update_part_from_bytes: got {} bytes but {}x{} region needs {}",
+            bytes.len(),
+            width,
+            height,
+            (width * height) as usize * 4,
+        );
+
+        let ctx = get_quad_context();
+
+        ctx.texture_update_part(
+            self.raw_miniquad_id(),
+            x_offset,
+            y_offset,
+            width,
+            height,
+            bytes,
         );
     }
 
