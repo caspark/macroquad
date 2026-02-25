@@ -27,7 +27,7 @@ opt-level = 3
 all-features = true
 
 [dependencies]
-miniquad = { version = "=0.4.8", features = ["log-impl"] }
+miniquad = { version = "=0.4.8", features = ["log-impl", "rwh-06"] }
 quad-rand = "0.2.3"
 glam = { version = "0.27", features = ["scalar-math"] }
 image = { version = "0.24", default-features = false, features = ["png", "tga"] }
@@ -42,14 +42,17 @@ macroquad-particles = { path = "./particles" }
 macroquad-tiled = { path = "./tiled" }
 macroquad-profiler = { path = "./profiler" }
 macroquad-platformer = { path = "./physics-platformer" }
+wgpu = "28.0.0"
+pollster = "0.4.0"
+raw-window-handle = "0.6.2"
 
 # workaround to fix the examples
 # this allows to use macroquad-particles in examples without two versions of macroquad
 [patch.crates-io]
 macroquad = { path = './' }
+miniquad = { git = "https://github.com/caspark/miniquad.git", branch = "master-caspark-2026-02-25" }
 
 #quad-snd = {path = '../quad-snd'}
-miniquad = { path = '../miniquad' }
 #miniquad = { git = "https://github.com/not-fl3/miniquad", branch = "msaa_render_texture" }
 #quad-gl = {path = './quad-gl'}
 
