@@ -313,7 +313,11 @@ impl Context {
         draw_call_index_capacity: usize,
     ) -> Context {
         let mut ctx: Box<dyn miniquad::RenderingBackend> =
-            miniquad::window::new_rendering_backend();
+            if miniquad::window::skip_graphics_context() {
+                Box::new(miniquad::dummy_backend::DummyBackend::new())
+            } else {
+                miniquad::window::new_rendering_backend()
+            };
         let (screen_width, screen_height) = miniquad::window::screen_size();
 
         Context {
@@ -399,6 +403,9 @@ impl Context {
     }
 
     fn begin_frame(&mut self) {
+        if miniquad::window::skip_graphics_context() {
+            return;
+        }
         telemetry::begin_gpu_query("GPU");
 
         self.ui_context.process_input();
@@ -410,26 +417,28 @@ impl Context {
     }
 
     fn end_frame(&mut self) {
-        crate::experimental::scene::update();
+        if !miniquad::window::skip_graphics_context() {
+            crate::experimental::scene::update();
 
-        self.perform_render_passes();
+            self.perform_render_passes();
 
-        self.ui_context.draw(get_quad_context(), &mut self.gl);
-        let screen_mat = self.pixel_perfect_projection_matrix();
-        self.gl.draw(get_quad_context(), screen_mat);
+            self.ui_context.draw(get_quad_context(), &mut self.gl);
+            let screen_mat = self.pixel_perfect_projection_matrix();
+            self.gl.draw(get_quad_context(), screen_mat);
 
-        get_quad_context().commit_frame();
+            get_quad_context().commit_frame();
 
-        #[cfg(one_screenshot)]
-        {
-            get_context().counter += 1;
-            if get_context().counter == 3 {
-                crate::prelude::get_screen_data().export_png("screenshot.png");
-                panic!("screenshot successfully saved to `screenshot.png`");
+            #[cfg(one_screenshot)]
+            {
+                get_context().counter += 1;
+                if get_context().counter == 3 {
+                    crate::prelude::get_screen_data().export_png("screenshot.png");
+                    panic!("screenshot successfully saved to `screenshot.png`");
+                }
             }
-        }
 
-        telemetry::end_gpu_query();
+            telemetry::end_gpu_query();
+        }
 
         self.mouse_wheel = Vec2::new(0., 0.);
         self.keys_pressed.clear();
@@ -440,7 +449,9 @@ impl Context {
 
         self.quit_requested = false;
 
-        self.textures.garbage_collect(get_quad_context());
+        if !miniquad::window::skip_graphics_context() {
+            self.textures.garbage_collect(get_quad_context());
+        }
 
         // remove all touches that were Ended or Cancelled
         self.touches.retain(|_, touch| {
@@ -773,7 +784,7 @@ impl EventHandler for Stage {
             get_context().last_frame_time = date::now();
 
             #[cfg(any(target_arch = "wasm32", target_os = "linux"))]
-            {
+            if !miniquad::window::skip_graphics_context() {
                 let _z = telemetry::ZoneGuard::new("glFinish/glFLush");
 
                 unsafe {
