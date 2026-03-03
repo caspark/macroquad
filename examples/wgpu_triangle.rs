@@ -1,13 +1,14 @@
-//! Minimal wgpu example using macroquad for windowing.
+//! Minimal wgpu example using macroquad for windowing and the event loop.
 //!
 //! Draws a coloured triangle to the center of the screen using wgpu,
-//! with macroquad handling the window creation and event loop.
+//! with macroquad handling window creation, input, and the async frame loop.
 //!
 //! Usage:
 //!   cargo run --example wgpu_triangle             # interactive mode
 //!   cargo run --example wgpu_triangle -- --frames 10 --screenshot out.png  # capture mode
 
-use miniquad::conf::Conf;
+use macroquad::prelude::*;
+use macroquad::window::raw_window_handle;
 use raw_window_handle::{HasDisplayHandle, HasWindowHandle};
 
 struct WgpuState {
@@ -16,14 +17,13 @@ struct WgpuState {
     surface: wgpu::Surface<'static>,
     surface_config: wgpu::SurfaceConfiguration,
     render_pipeline: wgpu::RenderPipeline,
-    // For screenshot capture
-    screenshot_buffer: Option<wgpu::Buffer>,
-    screenshot_texture: Option<wgpu::Texture>,
 }
 
 impl WgpuState {
     fn new() -> Self {
-        let mq_window = miniquad::MiniquadWindow::new();
+        // Obtain raw window/display handles from the macroquad window.
+        // Must be called after the event loop has started.
+        let mq_window = raw_window_handle();
 
         let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
             backends: wgpu::Backends::VULKAN | wgpu::Backends::METAL | wgpu::Backends::DX12,
@@ -61,6 +61,7 @@ impl WgpuState {
         ))
         .expect("failed to create device");
 
+        // Use physical pixel dimensions for the wgpu surface.
         let (width, height) = miniquad::window::screen_size();
         let width = width as u32;
         let height = height as u32;
@@ -80,7 +81,6 @@ impl WgpuState {
         };
         surface.configure(&device, &surface_config);
 
-        // Create shader
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("triangle shader"),
             source: wgpu::ShaderSource::Wgsl(SHADER.into()),
@@ -127,8 +127,6 @@ impl WgpuState {
             surface,
             surface_config,
             render_pipeline,
-            screenshot_buffer: None,
-            screenshot_texture: None,
         }
     }
 
@@ -137,9 +135,6 @@ impl WgpuState {
             self.surface_config.width = width;
             self.surface_config.height = height;
             self.surface.configure(&self.device, &self.surface_config);
-            // Invalidate screenshot resources on resize
-            self.screenshot_buffer = None;
-            self.screenshot_texture = None;
         }
     }
 
@@ -201,7 +196,6 @@ impl WgpuState {
         let width = self.surface_config.width;
         let height = self.surface_config.height;
 
-        // We need to render to a texture we can read back
         let texture = self.device.create_texture(&wgpu::TextureDescriptor {
             label: Some("screenshot texture"),
             size: wgpu::Extent3d {
@@ -252,11 +246,9 @@ impl WgpuState {
             render_pass.draw(0..3, 0..1);
         }
 
-        // Bytes per row must be aligned to 256
         let bytes_per_pixel = 4u32;
         let unpadded_bytes_per_row = width * bytes_per_pixel;
-        let padded_bytes_per_row =
-            (unpadded_bytes_per_row + 255) & !255;
+        let padded_bytes_per_row = (unpadded_bytes_per_row + 255) & !255;
 
         let buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("screenshot buffer"),
@@ -289,7 +281,6 @@ impl WgpuState {
 
         self.queue.submit(std::iter::once(encoder.finish()));
 
-        // Map and read
         let buffer_slice = buffer.slice(..);
         let (sender, receiver) = std::sync::mpsc::channel();
         buffer_slice.map_async(wgpu::MapMode::Read, move |result| {
@@ -315,15 +306,8 @@ impl WgpuState {
         drop(data);
         buffer.unmap();
 
-        // Save as PNG
-        image::save_buffer(
-            path,
-            &pixels,
-            width,
-            height,
-            image::ColorType::Rgba8,
-        )
-        .expect("failed to save screenshot");
+        image::save_buffer(path, &pixels, width, height, image::ColorType::Rgba8)
+            .expect("failed to save screenshot");
         println!("Screenshot saved to {path}");
     }
 }
@@ -360,41 +344,38 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
 }
 "#;
 
-struct Stage {
-    wgpu_state: Option<WgpuState>,
-    frame_count: u32,
-    max_frames: Option<u32>,
-    screenshot_path: Option<String>,
-    screenshot_taken: bool,
-}
+async fn app(max_frames: Option<u32>, screenshot_path: Option<String>) {
+    // WgpuState is initialised here, inside the macroquad event loop, so the
+    // window and its raw handles are guaranteed to exist.
+    let mut state = WgpuState::new();
 
-impl miniquad::EventHandler for Stage {
-    fn update(&mut self) {}
+    let mut frame_count = 0u32;
+    let mut screenshot_taken = false;
 
-    fn draw(&mut self) {
-        if self.wgpu_state.is_none() {
-            self.wgpu_state = Some(WgpuState::new());
+    loop {
+        // Use physical pixel dimensions for the wgpu surface.
+        let (phys_w, phys_h) = miniquad::window::screen_size();
+        let (phys_w, phys_h) = (phys_w as u32, phys_h as u32);
+
+        // Keep the wgpu surface in sync with the window size.
+        if phys_w != state.surface_config.width || phys_h != state.surface_config.height {
+            state.resize(phys_w, phys_h);
         }
 
-        let state = self.wgpu_state.as_mut().unwrap();
         state.render();
-        self.frame_count += 1;
+        frame_count += 1;
 
         if let (Some(max), Some(path), false) =
-            (self.max_frames, &self.screenshot_path, self.screenshot_taken)
+            (max_frames, &screenshot_path, screenshot_taken)
         {
-            if self.frame_count >= max {
+            if frame_count >= max {
                 state.capture_screenshot(path);
-                self.screenshot_taken = true;
+                screenshot_taken = true;
                 miniquad::window::order_quit();
             }
         }
-    }
 
-    fn resize_event(&mut self, width: f32, height: f32) {
-        if let Some(state) = &mut self.wgpu_state {
-            state.resize(width as u32, height as u32);
-        }
+        next_frame().await;
     }
 }
 
@@ -423,24 +404,22 @@ fn main() {
         i += 1;
     }
 
-    let conf = Conf {
-        window_title: "wgpu triangle".to_string(),
-        window_width: 800,
-        window_height: 600,
-        platform: miniquad::conf::Platform {
-            skip_graphics_context: true,
+    let conf = macroquad::conf::Conf {
+        miniquad_conf: miniquad::conf::Conf {
+            window_title: "wgpu triangle".to_string(),
+            window_width: 800,
+            window_height: 600,
+            platform: miniquad::conf::Platform {
+                // Skip GL context creation — wgpu manages the GPU directly.
+                skip_graphics_context: true,
+                ..Default::default()
+            },
             ..Default::default()
         },
         ..Default::default()
     };
 
-    miniquad::start(conf, move || {
-        Box::new(Stage {
-            wgpu_state: None,
-            frame_count: 0,
-            max_frames,
-            screenshot_path,
-            screenshot_taken: false,
-        })
+    macroquad::Window::from_config(conf, async move {
+        app(max_frames, screenshot_path).await;
     });
 }

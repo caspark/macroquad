@@ -9,6 +9,18 @@ pub use miniquad;
 
 pub use miniquad::conf::Conf;
 
+/// Returns a handle to the native window implementing [`raw_window_handle::HasWindowHandle`]
+/// and [`raw_window_handle::HasDisplayHandle`].
+///
+/// Useful for integrating external renderers such as wgpu. Must be called after the event
+/// loop has started (i.e., inside the async body passed to [`crate::Window::from_config`] or
+/// the `#[macroquad::main]` entry point), not at program startup.
+///
+/// Requires the miniquad `rwh-06` feature, which is enabled by default in macroquad.
+pub fn raw_window_handle() -> miniquad::MiniquadWindow {
+    miniquad::MiniquadWindow::new()
+}
+
 /// Block execution until the next frame.
 #[must_use = "use `next_frame().await` to advance to the next frame"]
 pub fn next_frame() -> crate::exec::FrameFuture {
