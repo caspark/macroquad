@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8">
+    <title>wgpu triangle</title>
+    <style>
+        html,
+        body,
+        canvas {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            position: absolute;
+            background: black;
+            z-index: 0;
+        }
+    </style>
+</head>
+
+<body>
+    <canvas id="glcanvas" tabindex="1"></canvas>
+    <!--
+        mq_js_bundle.js provides the miniquad JS runtime (input, canvas setup, etc.).
+        For local development, serve this file and the .wasm from the same directory
+        using a static file server, e.g.:
+            cargo build --target wasm32-unknown-unknown --example wgpu_triangle
+            cp target/wasm32-unknown-unknown/debug/examples/wgpu_triangle.wasm .
+            cp js/mq_js_bundle.js .
+            basic-http-server .
+    -->
+    <script src="mq_js_bundle.js"></script>
+    <script>load("wgpu_triangle.wasm");</script>
+</body>
+
+</html>

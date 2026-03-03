@@ -42,9 +42,13 @@ macroquad-particles = { path = "./particles" }
 macroquad-tiled = { path = "./tiled" }
 macroquad-profiler = { path = "./profiler" }
 macroquad-platformer = { path = "./physics-platformer" }
-wgpu = "28.0.0"
-pollster = "0.4.0"
+wgpu = { version = "28.0.0", features = ["webgl"] }
 raw-window-handle = "0.6.2"
+
+# Native-only dev dependencies (not needed / won't compile on wasm32)
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+pollster = "0.4.0"
+image = { version = "0.24", default-features = false, features = ["png"] }
 
 # workaround to fix the examples
 # this allows to use macroquad-particles in examples without two versions of macroquad

@@ -2,10 +2,17 @@
 //!
 //! Draws a coloured triangle to the center of the screen using wgpu,
 //! with macroquad handling window creation, input, and the async frame loop.
+//! Works on native (Vulkan/Metal/DX12) and web (WebGPU/WebGL2).
 //!
-//! Usage:
+//! Native usage:
 //!   cargo run --example wgpu_triangle             # interactive mode
-//!   cargo run --example wgpu_triangle -- --frames 10 --screenshot out.png  # capture mode
+//!   cargo run --example wgpu_triangle -- --frames 10 --screenshot out.png
+//!
+//! Web usage:
+//!   cargo build --target wasm32-unknown-unknown --example wgpu_triangle
+//!   # copy target/wasm32-unknown-unknown/debug/examples/wgpu_triangle.wasm
+//!   # and examples/wgpu_triangle.html to a directory, then serve it:
+//!   basic-http-server .
 
 use macroquad::prelude::*;
 use macroquad::window::raw_window_handle;
@@ -20,13 +27,20 @@ struct WgpuState {
 }
 
 impl WgpuState {
-    fn new() -> Self {
+    async fn new() -> Self {
         // Obtain raw window/display handles from the macroquad window.
         // Must be called after the event loop has started.
         let mq_window = raw_window_handle();
 
+        // On web use WebGL2 via wgpu's GL backend (WebGPU is not yet widely supported).
+        // On native use Vulkan / Metal / DX12.
+        #[cfg(target_arch = "wasm32")]
+        let backends = wgpu::Backends::GL;
+        #[cfg(not(target_arch = "wasm32"))]
+        let backends = wgpu::Backends::VULKAN | wgpu::Backends::METAL | wgpu::Backends::DX12;
+
         let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
-            backends: wgpu::Backends::VULKAN | wgpu::Backends::METAL | wgpu::Backends::DX12,
+            backends,
             ..Default::default()
         });
 
@@ -46,20 +60,26 @@ impl WgpuState {
                 .expect("failed to create surface")
         };
 
-        let adapter =
-            pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+        let adapter = instance
+            .request_adapter(&wgpu::RequestAdapterOptions {
                 compatible_surface: Some(&surface),
                 ..Default::default()
-            }))
+            })
+            .await
             .expect("failed to find adapter");
 
-        let (device, queue) = pollster::block_on(adapter.request_device(
-            &wgpu::DeviceDescriptor {
+        let (device, queue) = adapter
+            .request_device(&wgpu::DeviceDescriptor {
                 label: Some("device"),
+                // downlevel_webgl2_defaults zeroes out compute limits which WebGL2
+                // doesn't support. using_resolution() then fills in the adapter's
+                // actual resolution-dependent limits (max texture size etc.).
+                required_limits: wgpu::Limits::downlevel_webgl2_defaults()
+                    .using_resolution(adapter.limits()),
                 ..Default::default()
-            },
-        ))
-        .expect("failed to create device");
+            })
+            .await
+            .expect("failed to create device");
 
         // Use physical pixel dimensions for the wgpu surface.
         let (width, height) = miniquad::window::screen_size();
@@ -70,7 +90,9 @@ impl WgpuState {
         let format = caps.formats[0];
 
         let surface_config = wgpu::SurfaceConfiguration {
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+            // Only request COPY_SRC if the surface actually supports it (WebGL2 may not).
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                | (caps.usages & wgpu::TextureUsages::COPY_SRC),
             format,
             width,
             height,
@@ -192,6 +214,8 @@ impl WgpuState {
         frame.present();
     }
 
+    /// Capture the current frame to a PNG file. Native only.
+    #[cfg(not(target_arch = "wasm32"))]
     fn capture_screenshot(&mut self, path: &str) {
         let width = self.surface_config.width;
         let height = self.surface_config.height;
@@ -344,12 +368,17 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
 }
 "#;
 
-async fn app(max_frames: Option<u32>, screenshot_path: Option<String>) {
+async fn app(
+    #[cfg(not(target_arch = "wasm32"))] max_frames: Option<u32>,
+    #[cfg(not(target_arch = "wasm32"))] screenshot_path: Option<String>,
+) {
     // WgpuState is initialised here, inside the macroquad event loop, so the
     // window and its raw handles are guaranteed to exist.
-    let mut state = WgpuState::new();
+    let mut state = WgpuState::new().await;
 
+    #[cfg(not(target_arch = "wasm32"))]
     let mut frame_count = 0u32;
+    #[cfg(not(target_arch = "wasm32"))]
     let mut screenshot_taken = false;
 
     loop {
@@ -363,15 +392,18 @@ async fn app(max_frames: Option<u32>, screenshot_path: Option<String>) {
         }
 
         state.render();
-        frame_count += 1;
 
-        if let (Some(max), Some(path), false) =
-            (max_frames, &screenshot_path, screenshot_taken)
+        #[cfg(not(target_arch = "wasm32"))]
         {
-            if frame_count >= max {
-                state.capture_screenshot(path);
-                screenshot_taken = true;
-                miniquad::window::order_quit();
+            frame_count += 1;
+            if let (Some(max), Some(path), false) =
+                (max_frames, &screenshot_path, screenshot_taken)
+            {
+                if frame_count >= max {
+                    state.capture_screenshot(path);
+                    screenshot_taken = true;
+                    miniquad::window::order_quit();
+                }
             }
         }
 
@@ -380,29 +412,31 @@ async fn app(max_frames: Option<u32>, screenshot_path: Option<String>) {
 }
 
 fn main() {
-    let args: Vec<String> = std::env::args().collect();
-
-    let mut max_frames: Option<u32> = None;
-    let mut screenshot_path: Option<String> = None;
-
-    let mut i = 1;
-    while i < args.len() {
-        match args[i].as_str() {
-            "--frames" => {
-                i += 1;
-                max_frames = Some(args[i].parse().expect("--frames needs a number"));
+    #[cfg(not(target_arch = "wasm32"))]
+    let (max_frames, screenshot_path) = {
+        let args: Vec<String> = std::env::args().collect();
+        let mut max_frames: Option<u32> = None;
+        let mut screenshot_path: Option<String> = None;
+        let mut i = 1;
+        while i < args.len() {
+            match args[i].as_str() {
+                "--frames" => {
+                    i += 1;
+                    max_frames = Some(args[i].parse().expect("--frames needs a number"));
+                }
+                "--screenshot" => {
+                    i += 1;
+                    screenshot_path = Some(args[i].clone());
+                }
+                _ => {
+                    eprintln!("Unknown arg: {}", args[i]);
+                    std::process::exit(1);
+                }
             }
-            "--screenshot" => {
-                i += 1;
-                screenshot_path = Some(args[i].clone());
-            }
-            _ => {
-                eprintln!("Unknown arg: {}", args[i]);
-                std::process::exit(1);
-            }
+            i += 1;
         }
-        i += 1;
-    }
+        (max_frames, screenshot_path)
+    };
 
     let conf = macroquad::conf::Conf {
         miniquad_conf: miniquad::conf::Conf {
@@ -420,6 +454,12 @@ fn main() {
     };
 
     macroquad::Window::from_config(conf, async move {
-        app(max_frames, screenshot_path).await;
+        app(
+            #[cfg(not(target_arch = "wasm32"))]
+            max_frames,
+            #[cfg(not(target_arch = "wasm32"))]
+            screenshot_path,
+        )
+        .await;
     });
 }
